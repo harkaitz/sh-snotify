@@ -1,0 +1,117 @@
+#!/bin/sh -e
+##:
+#h: Usage: snotify [-V][-t TOPIC] [- | COMMAND...]
+#h:
+#h: Send notifications through "ntfy.sh".
+#h:
+#h:   -V            : Show configuration files.
+#h:   -c            : Perform check.
+#h:   -m MESSAGE    : Specify message from command line.
+#h:   -H            : High priority.
+#h:   -T TITLE      : Pack as code.
+#h:   -t TOPIC      : Topic to send to, NTFY_TOPIC_PREFIX is set
+#h:                   then ${NTFY_TOPIC_PREFIX}--TOPIC will be used.
+#h:   -E TOPIC      : Topic to send to, ignore NTFY_TOPIC_PREFIX.
+#h:
+#h: Environment   : NTFY_TOPIC_PREFIX
+#h: Files UNIX    : ~/.snotify, /etc/snotify
+#h: Files WINDOWS : ~/.snotify, $winsysdir/snotify.txt
+##:
+snotify() {
+    local tmp OPTIND optopt tmp
+    local title= message= cmd= priority=low ret=0
+    local topic="${NTFY_TOPIC_PREFIX}"
+
+    ## Parse command line arguments.
+    while getopts "Vt:m:T:HcE:" optopt; do
+        case $optopt in
+            V)  echo "NTFY_TOPIC_PREFIX : ${NTFY_TOPIC_PREFIX}"; return 0;;
+            c)  cmd=check;;
+            t)  topic="${topic:+${topic}--}${OPTARG}";;
+            m)  message="${OPTARG}" cmd=message;;
+            T)  title="${OPTARG}";;
+            H)  priority=high;;
+            E)  topic="${OPTARG}";;
+            \?) return 1;;
+        esac
+    done
+    shift $(( $OPTIND - 1 ))
+    if test -n "${cmd}"; then
+        true    
+    elif test @"$1" = @"-"; then
+        cmd=stdin
+    elif test -n "$1"; then
+        cmd=execute
+    else
+        echo >&2 "error: Nothing to do."
+        return 1
+    fi
+
+    ## Check configuration.
+    if test ! -n "${topic}"; then
+        echo >&2 "error: Please specify a topic or set NTFY_TOPIC_PREFIX."
+        return 1
+    fi
+    
+    ## Fetch from standard input.
+    tmp="$(mktemp)"
+    case "${cmd}" in
+        stdin)
+            tee -a "${tmp}"
+            ;;
+        message)
+            echo "${message}" > "${tmp}"
+            ;;
+        execute)
+            title="$*"
+            if "$@"; then
+                echo "SUCCESS" > "${tmp}"
+            else
+                echo "FAILURE" > "${tmp}"
+                ret=1
+            fi
+            ;;
+        check)
+            title="$(uname -n)"
+            priority=high
+            cat > "${tmp}" <<-EOF 
+		$(date)
+		$(uname -o) - $(uname -m)
+		$(uptime)
+		$(whoami)
+		EOF
+            ;;
+    esac
+    
+    ## Send notification.
+    wget                                       \
+        -q -O -                                \
+        --header "Priority: ${priority}"       \
+        ${title:+ --header "Title: ${title}" } \
+        --post-file "${tmp}"                   \
+        https://ntfy.sh/"${topic}"             \
+        > /dev/null
+    
+    ## Cleanup.
+    rm -f "${tmp}"
+    
+    ## Return.
+    return "${ret}"
+}
+## -------------------------------------------------------------------
+if test -n "${NTFY_TOPIC_PREFIX}"; then
+    true
+elif test -f ~/.snotify; then
+    NTFY_TOPIC_PREFIX="$(cat ~/.snotify)"
+elif test -n "${winsysdir}" && test -f "${winsysdir}/snotify.txt"; then
+    NTFY_TOPIC_PREFIX="$(cat "${winsysdir}/snotify.txt")"
+elif test -d "/etc" && test -f "/etc/snotify"; then
+    NTFY_TOPIC_PREFIX="$(cat /etc/snotify)"
+fi
+## -------------------------------------------------------------------
+if test @"$(basename "$0")" = @"snotify"; then    
+    case "${1}" in
+        ''|-h|--help) sed -n 's/^ *#h: \{0,1\}//p' "$0";;
+        *)            snotify "$@"; exit 0;;
+    esac
+fi

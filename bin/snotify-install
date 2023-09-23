@@ -1,0 +1,40 @@
+#!/bin/sh -e
+##:
+#h: Usage: snotify-install [ssh MACHINE]
+#h:
+#h: Install snotify in [a remote] system with the same configuration.
+##:
+. snotify
+snotify_install() {
+    local d="$(mktemp -d)"
+    ## Require NTFY_TOPIC_PREFIX.
+    if test ! -n "${NTFY_TOPIC_PREFIX}"; then
+        echo >&2 "error: Please set NTFY_TOPIC_PREFIX."
+        return 1
+    fi
+    ## Pack snotify.
+    for n in snotify; do
+        cat "$(which "${n}")" > "${d}/${n}"
+        chmod +x "${d}/${n}"
+    done
+    ## Send to the machine.
+    tar cf - -C "${d}" . | "${@:-eval}" "
+    if test -n \"\${winsysdir}\"; then
+        echo 'Installing snotify (windows) ...'
+        tar xf - -h -o -m --no-same-permissions -C \"\${winsysdir}\"
+        echo '${NTFY_TOPIC_PREFIX}' > \"\${winsysdir}/snotify.txt\"
+    else
+        echo 'Installing snotify (unix) ...'
+        sudo tar xf - -h -o -m --no-same-permissions -C /bin
+        echo '${NTFY_TOPIC_PREFIX}' | sudo tee /etc/snotify >/dev/null
+    fi
+    echo 'Testing snotify ...'
+    snotify -c
+    " 
+}
+if test @"$(basename "$0")" = @"snotify-install";then
+    case "${1}" in
+        ''|-h|--help) sed -n 's/^ *#h: \{0,1\}//p' "$0" ;;
+        *)            snotify_install "$@"; exit 0;;
+    esac
+fi
