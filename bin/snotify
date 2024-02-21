@@ -89,7 +89,7 @@ snotify() {
         --header "Priority: ${priority}"       \
         ${title:+ --header "Title: ${title}" } \
         --post-file "${tmp}"                   \
-        https://ntfy.sh/"${topic}"             \
+        http://ntfy.sh/"${topic}"              \
         > /dev/null
     
     ## Cleanup.
